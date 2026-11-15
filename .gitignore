@@ -1,0 +1,17 @@
+# Partition backups and generated images (do not commit!)
+backups/
+backup/
+work/
+*_analysis/
+*.img
+*.bin
+*.apk
+
+# Python caches & virtualenvs
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+*.log
