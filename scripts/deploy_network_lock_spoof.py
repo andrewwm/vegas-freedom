@@ -26,6 +26,24 @@ MODULE_APK = os.path.join(XPOSED_DIR, "SpoofNetworkLock.apk")
 ZYGISK_NEXT_URL = "https://github.com/Dr-TSNG/ZygiskNext/releases/download/v1.5.3/Zygisk-Next-1.5.3-880-22a1bf5-release.zip"
 VECTOR_URL = "https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip"
 
+def ensure_adb():
+    if shutil.which("adb"):
+        return True
+    candidates = [
+        r"C:\Users\antbl\MotoRoot\platform-tools",
+        r"C:\platform-tools",
+        os.path.expanduser(r"~\platform-tools"),
+        os.path.expanduser(r"~\AppData\Local\Android\Sdk\platform-tools"),
+        os.path.expanduser(r"~\MotoRoot\platform-tools"),
+        os.path.join(REPO_ROOT, "platform-tools"),
+    ]
+    for c in candidates:
+        adb_bin = os.path.join(c, "adb.exe" if os.name == "nt" else "adb")
+        if os.path.isfile(adb_bin):
+            os.environ["PATH"] = c + os.pathsep + os.environ.get("PATH", "")
+            return True
+    return False
+
 def run_adb(args, check=True):
     cmd = ["adb"] + args
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -34,12 +52,13 @@ def run_adb(args, check=True):
     return res.stdout.strip()
 
 def run_adb_su(cmd_str, check=True):
-    # Pass command via su stdin to avoid shell quote mangling across OSes
-    proc = subprocess.Popen(["adb", "shell", "su"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stdout, stderr = proc.communicate(input=cmd_str + "\nexit\n")
-    if check and proc.returncode != 0:
-        raise RuntimeError(f"ADB su command failed: {cmd_str}\n{stderr.strip()}")
-    return stdout.strip()
+    import base64
+    b64 = base64.b64encode(cmd_str.encode("utf-8")).decode("ascii")
+    cmd = ["adb", "shell", f"su -c 'echo {b64} | base64 -d | sh'"]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if check and res.returncode != 0:
+        raise RuntimeError(f"ADB su command failed: {cmd_str}\n{res.stderr.strip()}")
+    return res.stdout.strip()
 
 def download_file(url, target_path):
     print(f"[*] Downloading: {url} -> {target_path}")
@@ -52,7 +71,7 @@ def main():
     print(" Moto G Power 2026 - Network Lock Spoof Deployer ")
     print("==================================================")
 
-    if not shutil.which("adb"):
+    if not ensure_adb():
         print("[!] Error: 'adb' not found on PATH. Please install Android Platform Tools.")
         return 1
 
@@ -85,12 +104,16 @@ def main():
 
     # 3. Check and install Zygisk Next & Vector Magisk modules
     installed_modules = run_adb_su("ls /data/adb/modules 2>/dev/null || true", check=False)
+    updated_modules = run_adb_su("ls /data/adb/modules_update 2>/dev/null || true", check=False)
     needs_reboot = False
+    if "zygisksu" in updated_modules or "zygisk_vector" in updated_modules:
+        needs_reboot = True
+
     cache_dir = os.path.join(REPO_ROOT, "work", "downloads")
     os.makedirs(cache_dir, exist_ok=True)
 
     # Check Zygisk Next
-    if "zygisksu" not in installed_modules:
+    if "zygisksu" not in installed_modules and "zygisksu" not in updated_modules:
         print("[*] Zygisk Next not found in Magisk modules. Installing...")
         zn_zip = os.path.join(cache_dir, "ZygiskNext.zip")
         if not os.path.isfile(zn_zip):
@@ -103,7 +126,7 @@ def main():
         print("[+] Zygisk Next is already installed.")
 
     # Check Vector
-    if "zygisk_vector" not in installed_modules:
+    if "zygisk_vector" not in installed_modules and "zygisk_vector" not in updated_modules:
         print("[*] Vector (Xposed) not found in Magisk modules. Installing...")
         vector_zip = os.path.join(cache_dir, "Vector.zip")
         if not os.path.isfile(vector_zip):
@@ -117,13 +140,17 @@ def main():
 
     # 4. Install SpoofNetworkLock headless APK
     print("[*] Installing SpoofNetworkLock APK...")
-    run_adb(["push", MODULE_APK, "/data/local/tmp/SpoofNetworkLock.apk"])
-    run_adb_su("pm install -r -d -g --bypass-low-target-sdk-block /data/local/tmp/SpoofNetworkLock.apk")
-    apk_path_out = run_adb_su("pm path com.example.spoofnetworklock")
-    if not apk_path_out.startswith("package:"):
+    run_adb(["shell", "settings", "put", "global", "verifier_verify_adb_installs", "0"])
+    run_adb(["install", "-r", "-d", "--bypass-low-target-sdk-block", MODULE_APK])
+    apk_path_out = run_adb(["shell", "pm", "path", "com.example.spoofnetworklock"])
+    device_apk_path = None
+    for line in apk_path_out.splitlines():
+        if "com.example.spoofnetworklock" in line and "package:" in line:
+            device_apk_path = line.split("package:")[-1].strip()
+            break
+    if not device_apk_path:
         print(f"[!] Failed to get installed APK path: {apk_path_out}")
         return 1
-    device_apk_path = apk_path_out.replace("package:", "").strip()
     print(f"[+] SpoofNetworkLock installed at: {device_apk_path}")
 
     # 5. Provision Vector configuration database
@@ -198,7 +225,9 @@ def main():
     # 6. Apply service.sh Magisk busybox unshare patch
     print("[*] Patching Vector service.sh for bootloader namespace isolation...")
     run_adb_su("""
-    cat << "EOF" > /data/adb/modules/zygisk_vector/service.sh
+    for d in /data/adb/modules/zygisk_vector /data/adb/modules_update/zygisk_vector; do
+        if [ -d "$d" ]; then
+            cat << "EOF" > "$d/service.sh"
 #!/system/bin/sh
 MODDIR="${0%/*}"
 cd "$MODDIR" || exit 1
@@ -209,7 +238,9 @@ else
     unshare --propagation slave -m "$MODDIR/daemon" --system-server-max-retry=3 "$@" &
 fi
 EOF
-    chmod 755 /data/adb/modules/zygisk_vector/service.sh
+            chmod 755 "$d/service.sh"
+        fi
+    done
     """)
     print("[+] Vector service.sh patched.")
 
@@ -219,7 +250,10 @@ EOF
     # 8. Check if reboot is required
     if needs_reboot:
         print("\n[!] Fresh Magisk modules were installed. A device reboot is required.")
-        ans = input("[?] Would you like to reboot the device now? [Y/n]: ").strip().lower()
+        if any(arg in sys.argv for arg in ("--reboot", "-y", "--yes")) or not sys.stdin.isatty():
+            ans = "y"
+        else:
+            ans = input("[?] Would you like to reboot the device now? [Y/n]: ").strip().lower()
         if ans in ("", "y", "yes"):
             print("[*] Rebooting device...")
             run_adb(["reboot"])
