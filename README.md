@@ -253,17 +253,59 @@ If your device is on a newer OTA build or is a closely related MediaTek Motorola
 
 ---
 
+## Step 4: Spoof "Network lock" to "Unlocked" (Systemless)
+
+On Android 16, **Settings > About phone > Network lock** does not read a static system property; it dynamically queries an IPC ContentProvider provided by Motorola's `com.motorola.carriersettingsext` (`CarrierSettingsExt.apk`). Because Android 16 strictly enforces OEM platform cryptographic signatures on priv-apps, replacing system APKs on disk breaks signature validation.
+
+This patch uses **Vector** (an Android 15/16-compatible modern Xposed framework running via **Zygisk Next**) and the headless **`SpoofNetworkLock`** module to intercept the UI summary and subsidy lock checks in memory, making Settings display **Unlocked** persistently without touching `/system`, NVRAM, or baseband firmware.
+
+### Automated Deployment
+
+Run the one-step deployment script:
+
+```bash
+python scripts/deploy_network_lock_spoof.py
+```
+
+This script:
+1. Verifies ADB connection and Magisk root (`su`).
+2. Installs `Zygisk Next` and `Vector` Magisk modules (downloads official releases if not cached).
+3. Installs the headless `SpoofNetworkLock.apk` (runs silently in the background with **no launcher icon**).
+4. Auto-provisions `/data/adb/lspd/config/modules_config.db` with proper scopes (`com.android.settings`, `com.motorola.carriersettingsext`, and `system`).
+5. Patches `/data/adb/modules/zygisk_vector/service.sh` for Magisk busybox namespace isolation.
+6. Refreshes the target packages and verifies live that the carrier provider outputs `Unlocked`.
+
+---
+
 ## Repository Layout
 
 ```text
-vegas-freedom/
+vegas-freedom-xposed/
 ├── README.md
 ├── LICENSE
 ├── LICENSE-NOTICE.md
 ├── requirements.txt
 ├── scripts/
 │   ├── backup_partitions.py
-│   └── backup_partitions.sh
+│   ├── backup_partitions.sh
+│   └── deploy_network_lock_spoof.py
+├── xposed/
+│   ├── README.md
+│   ├── SpoofNetworkLock.apk
+│   ├── build_module.py
+│   └── SpoofNetworkLock/
+│       ├── AndroidManifest.xml
+│       ├── assets/
+│       │   └── xposed_init
+│       ├── res/
+│       │   └── values/
+│       │       ├── arrays.xml
+│       │       └── strings.xml
+│       └── src/
+│           └── com/
+│               └── example/
+│                   └── spoofnetworklock/
+│                       └── HookInit.java
 ├── bootloader/
 │   ├── LICENSE
 │   ├── ACKNOWLEDGEMENTS.md
