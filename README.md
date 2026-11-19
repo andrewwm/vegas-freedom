@@ -270,7 +270,7 @@ python scripts/deploy_network_lock_spoof.py
 This script:
 1. Verifies ADB connection and Magisk root (`su`).
 2. Installs `Zygisk Next` and `Vector` Magisk modules (downloads official releases if not cached).
-3. Installs the headless `SpoofNetworkLock.apk` (runs silently in the background with **no launcher icon**).
+3. Installs the headless `SpoofNetworkLock.apk` (runs silently in the background with **no launcher icon**; the standalone Vector manager app is intentionally excluded so zero icons appear in the app drawer).
 4. Auto-provisions `/data/adb/lspd/config/modules_config.db` with proper scopes (`com.android.settings`, `com.motorola.carriersettingsext`, and `system`).
 5. Patches `/data/adb/modules/zygisk_vector/service.sh` for Magisk busybox namespace isolation.
 6. Refreshes the target packages and verifies live that the carrier provider outputs `Unlocked`.

@@ -138,7 +138,13 @@ def main():
     else:
         print("[+] Vector framework is already installed.")
 
-    # 4. Install SpoofNetworkLock headless APK
+    # 4. Install SpoofNetworkLock headless APK (no launcher icons)
+    # Ensure standalone Vector manager app is not installed (pure headless deployment)
+    installed_pkgs = run_adb(["shell", "pm", "list", "packages", "org.matrix.vector.manager"])
+    if "org.matrix.vector.manager" in installed_pkgs:
+        print("[*] Removing standalone Vector manager app to keep setup 100% headless...")
+        run_adb(["uninstall", "org.matrix.vector.manager"], check=False)
+
     print("[*] Installing SpoofNetworkLock APK...")
     run_adb(["shell", "settings", "put", "global", "verifier_verify_adb_installs", "0"])
     run_adb(["install", "-r", "-d", "--bypass-low-target-sdk-block", MODULE_APK])
