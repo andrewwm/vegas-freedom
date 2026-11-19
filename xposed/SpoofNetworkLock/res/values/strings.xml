@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Spoof Network Lock</string>
+    <string name="module_desc">Spoof Network Lock to Unlocked in Settings</string>
+</resources>

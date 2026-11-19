@@ -6,6 +6,7 @@ work/
 *.img
 *.bin
 *.apk
+!xposed/SpoofNetworkLock.apk
 
 # Python caches & virtualenvs
 __pycache__/
